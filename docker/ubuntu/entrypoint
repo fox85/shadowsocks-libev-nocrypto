@@ -16,7 +16,7 @@ function print_usage {
   echo "OPTIONS"
   echo "  -k <password>            password of your remote server"
   echo
-  echo "  [-m <encrypt_method>]    encrypt method: table, rc4, rc4-md5"
+  echo "  [-m <encrypt_method>]    encrypt method: none, rc4, rc4-md5"
   echo "                           aes-128-cfb, aes-192-cfb, aes-256-cfb,"
   echo "                           bf-cfb, camellia-128-cfb, camellia-192-cfb,"
   echo "                           camellia-256-cfb, cast5-cfb, des-cfb, idea-cfb,"
