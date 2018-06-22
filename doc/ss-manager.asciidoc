@@ -45,6 +45,8 @@ Set the cipher or turn off the encryption.
 +
 To disable encryption use `none` as cipher.
 +
+Set the cipher.
++
 *Shadowsocks-libev* accepts 18 different ciphers:
 +
 aes-128-gcm, aes-192-gcm, aes-256-gcm,
@@ -53,7 +55,7 @@ aes-128-ctr, aes-192-ctr, aes-256-ctr, bf-cfb,
 camellia-128-cfb, camellia-192-cfb, camellia-256-cfb,
 chacha20-ietf-poly1305, salsa20, chacha20 and chacha20-ietf.
 +
-The default cipher is 'rc4-md5'.
+The default cipher is 'chacha20-ietf-poly1305'.
 +
 If built with PolarSSL or custom OpenSSL libraries, some of
 these ciphers may not work.

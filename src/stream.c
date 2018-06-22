@@ -72,7 +72,7 @@
  *
  */
 
-#define NONE               0
+#define NONE                0
 #define RC4                 1
 #define RC4_MD5             2
 #define AES_128_CFB         3
@@ -119,7 +119,7 @@ const char *supported_stream_ciphers[STREAM_CIPHER_NUM] = {
 };
 
 static const char *supported_stream_ciphers_mbedtls[STREAM_CIPHER_NUM] = {
-    "table",
+    "none",
     "ARC4-128",
     "ARC4-128",
     "AES-128-CFB128",
@@ -676,11 +676,11 @@ stream_init(const char *pass, const char *key, const char *method)
                 break;
             }
         if (m >= STREAM_CIPHER_NUM) {
-            LOGE("Invalid cipher name: %s, use rc4-md5 instead", method);
-            m = RC4_MD5;
+            LOGE("Invalid cipher name: %s, use chacha20-ietf instead", method);
+            m = CHACHA20IETF;
         }
     }
-    if (m == NONE) {
+    if (m == TABLE) {
         LOGE("Table is deprecated");
         return NULL;
     }
