@@ -1,6 +1,6 @@
 # shadowsocks-libev-nocrypto
 
-[![Build Status](https://travis-ci.org/spyff/shadowsocks-libev-nocrypto.svg?branch=nocrypto)](https://travis-ci.org/spyff/shadowsocks-libev-nocrypto)
+[![Build Status](https://travis-ci.org/SPYFF/shadowsocks-libev-nocrypto.svg?branch=nocrypto)](https://travis-ci.org/SPYFF/shadowsocks-libev-nocrypto)
 
 This is a fork of the popular [Shadowsocks-libev](https://shadowsocks.org) proxy application, which enable the user to disable the encryption. 
 The motivation behind this: on router boards with limited CPU resources, the encryption is drop down the network throughput.
@@ -20,8 +20,6 @@ created by [@clowwindy](https://github.com/clowwindy), and maintained by
 [@madeye](https://github.com/madeye) and [@linusyang](https://github.com/linusyang).
 
 Current version: 3.2.0 | [Changelog](debian/changelog)
-
-Travis CI: [![Travis CI](https://travis-ci.org/shadowsocks/shadowsocks-libev.svg?branch=master)](https://travis-ci.org/shadowsocks/shadowsocks-libev)
 
 ## Features
 
