@@ -42,7 +42,6 @@
 #include "aead.h"
 #include "utils.h"
 #include "ppbloom.h"
-#include "noencrypt.h"
 
 int
 balloc(buffer_t *ptr, size_t capacity)
@@ -130,6 +129,28 @@ entropy_check(void)
         close(fd);
     }
 #endif
+}
+
+int
+none_stream (buffer_t *chipertext, cipher_ctx_t *chiper_ctx, size_t capacity) {
+    (void) chipertext; (void) chiper_ctx; (void) capacity;
+    return CRYPTO_OK;
+}
+
+int
+none_stream_all (buffer_t *plaintext, cipher_t *chiper, size_t capacity) {
+    (void) plaintext; (void) chiper; (void) capacity;
+    return CRYPTO_OK;
+}
+
+void
+none_stream_ctx_init (cipher_t *chiper, cipher_ctx_t *chiper_ctx, int enc) {
+    (void) chiper; (void) chiper_ctx; (void) enc;
+}
+
+void
+none_stream_ctx_release (cipher_ctx_t *chiper_ctx) {
+    (void) chiper_ctx;
 }
 
 crypto_t *
