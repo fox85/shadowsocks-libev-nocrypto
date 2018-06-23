@@ -1,13 +1,11 @@
-[submodule "libcork"]
-	path = libcork
-	url = https://github.com/shadowsocks/libcork.git
-    ignore = dirty
 [submodule "libipset"]
 	path = libipset
 	url = https://github.com/shadowsocks/ipset.git
-    ignore = dirty
+	branch = shadowsocks
 [submodule "libbloom"]
 	path = libbloom
 	url = https://github.com/shadowsocks/libbloom.git
-    ignore = dirty
-	
+[submodule "libcork"]
+	path = libcork
+	url = https://github.com/shadowsocks/libcork.git
+	branch = shadowsocks
