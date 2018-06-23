@@ -680,7 +680,7 @@ stream_init(const char *pass, const char *key, const char *method)
             m = CHACHA20IETF;
         }
     }
-    if (m == TABLE) {
+    if (m == NONE) {
         LOGE("Table is deprecated");
         return NULL;
     }
