@@ -309,11 +309,16 @@ read_jconf(const char *file)
                 check_json_value_type(value, json_integer,
                                       "invalid config file: option 'mtu' must be an integer");
                 conf.mtu = value->u.integer;
+            } else if (strcmp(name, "ebpf") == 0) {
+                check_json_value_type(value, json_boolean,
+                                      "invalid config file: option 'ebpf' must be a boolean");
+                conf.ebpf = value->u.boolean;
             } else if (strcmp(name, "mptcp") == 0) {
                 check_json_value_type(value, json_boolean,
                                       "invalid config file: option 'mptcp' must be a boolean");
                 conf.mptcp = value->u.boolean;
-            } else if (strcmp(name, "ipv6_first") == 0) {
+            }       
+            else if (strcmp(name, "ipv6_first") == 0) {
                 check_json_value_type(value, json_boolean,
                                       "invalid config file: option 'ipv6_first' must be a boolean");
                 conf.ipv6_first = value->u.boolean;
