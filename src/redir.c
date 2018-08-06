@@ -449,10 +449,15 @@ free_ebpf_connection(ebpf_conn_t *conn)
     close(conn->sockmap_fd);
 	close(conn->parse_prog_fd);
 	close(conn->verdict_prog_fd);
-    if(is_open(conn->local_sock))
+    
+    if(is_open(conn->local_sock)) {
         close(conn->local_sock);
-	if(is_open(conn->remote_sock))
+    }
+        
+	if(is_open(conn->remote_sock)) {
         close(conn->remote_sock);
+    }
+        
     conn = NULL;
 }
 
