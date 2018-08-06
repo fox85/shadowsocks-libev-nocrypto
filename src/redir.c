@@ -43,6 +43,10 @@
 
 #include <libcork/core.h>
 
+#include <linux/bpf.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -68,6 +72,9 @@
 #ifndef IP6T_SO_ORIGINAL_DST
 #define IP6T_SO_ORIGINAL_DST 80
 #endif
+
+#define PARSE_PROG_FILENAME "sockmap_parse.o.ebpf"
+#define VERDICT_PROG_FILENAME "sockmap_verdict.o.ebpf"
 
 static void accept_cb(EV_P_ ev_io *w, int revents);
 static void server_recv_cb(EV_P_ ev_io *w, int revents);
@@ -128,6 +135,18 @@ setnonblocking(int fd)
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+inline int
+is_open(int sock)
+{
+	int err;
+	err = recv(sock, NULL, 0, MSG_PEEK|MSG_DONTWAIT);
+	if(err == 0)
+		return 1;
+	if(err == -1 && errno == EAGAIN)
+		return 1;
+	return 0;
+}
+
 int
 create_and_bind(const char *addr, const char *port)
 {
@@ -185,6 +204,256 @@ create_and_bind(const char *addr, const char *port)
     freeaddrinfo(result);
 
     return listen_sock;
+}
+
+int 
+bpf_prog_load_obj_buf(void *obj_buf, int obj_buf_sz, const char *file, enum bpf_prog_type type,
+		  struct bpf_object **pobj, int *prog_fd)
+{
+	struct bpf_program *prog;
+	struct bpf_object *obj;
+	int err;
+
+	obj = bpf_object__open_buffer(obj_buf, obj_buf_sz, file);
+	if (libbpf_get_error(obj))
+		return -ENOENT;
+
+	prog = bpf_program__next(NULL, obj);
+	if (!prog) {
+		bpf_object__close(obj);
+		return -ENOENT;
+	}
+
+	bpf_program__set_type(prog, type);
+	err = bpf_object__load(obj);
+	if (err) {
+		bpf_object__close(obj);
+		return -EINVAL;
+	}
+
+	*pobj = obj;
+	*prog_fd = bpf_program__fd(prog);
+	return 0;
+}
+
+int 
+read_obj_file_into_buffer(char *fname, void **obj_buf, int *obj_buf_sz)
+{
+	FILE *fileptr = NULL;
+	char *buf;
+	long file_size, readed;
+    int err;
+
+    if(*obj_buf == NULL || obj_buf_sz == NULL) {
+        LOGE("Invalid arguments for object file read\n");
+        goto error;
+    }
+
+	fileptr = fopen(fname, "rb");
+    if(fileptr == NULL) {
+        ERROR("fopen");
+        goto error;
+    }
+	err = fseek(fileptr, 0, SEEK_END);
+    if(!err) {
+        ERROR("fseek");
+        goto error;
+    }
+	file_size = ftell(fileptr);
+    if(file_size < 0) {
+        ERROR("ftell");
+        goto error;
+    }
+	rewind(fileptr);
+
+	buf = (char *) malloc((file_size + 1) *sizeof(char));
+    if(buf == NULL) {
+        ERROR("malloc");
+        goto error;
+    }
+	readed = fread(buf, file_size, 1, fileptr);
+    err = file_size - readed;
+    if(!err) {
+        ERROR("fread");
+        goto cleanup;
+    }
+
+	*obj_buf = (void *) buf;
+	*obj_buf_sz = file_size;
+    return 0;
+
+cleanup:
+    free(buf);
+error:
+    if(fileptr != NULL)
+        fclose(fileptr);
+    return -1;
+}
+
+int
+init_ebpf_object_buffers(obufs_t *progs)
+{
+	char *buf;
+	int i, err;
+
+    if(progs == NULL) {
+        printf("Invalid argument for object buffer initialization\n");
+        goto error;
+    }
+
+	err = read_obj_file_into_buffer(PARSE_PROG_FILENAME,
+		&progs->parse_prog, &progs->parse_prog_size);
+    if(!err) {
+        goto error;
+    }
+
+	err = read_obj_file_into_buffer(VERDICT_PROG_FILENAME, 
+		&progs->verdict_prog, &progs->verdict_prog_size);
+    if(!err) {
+        goto error;
+    }
+
+	buf = (char *) progs->verdict_prog;
+	for(i = 0; i < progs->verdict_prog_size - 3; ++i) {
+		if(buf[i] == (char)0xfc && 
+			buf[i+1] == (char)0xfc && 
+			buf[i+2] == (char)0xfc && 
+			buf[i+3] == (char)0xfc) {
+
+			progs->verdict_port_p = (int *) &buf[i];
+		}
+	}
+
+    return 0;
+
+error:
+    return -1;
+}
+
+void
+free_ebpf_object_buffers(obufs_t *progs)
+{
+    free(progs->parse_prog);
+    free(progs->verdict_prog);
+    progs->verdict_port_p = NULL;
+	progs->parse_prog_size = -1;
+	progs->verdict_prog_size = -1;
+}
+
+int 
+init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
+{
+    int pfd, vfd, sfd, err = -1;
+    int local_key, remote_key;
+	ebpf_conn_t *conn;
+	socklen_t sock_size;
+	struct sockaddr_in local_addr;
+	struct bpf_object *vobj, *pobj;
+    struct bpf_map *smap;
+
+	local_key = 1; remote_key = 0;
+
+	conn = (ebpf_conn_t *) malloc(sizeof(ebpf_conn_t));
+    if(conn == NULL) {
+        ERROR("malloc");
+        goto error;
+    }
+
+	sock_size = sizeof(struct sockaddr);
+	err = getsockname(local_sock, (struct sockaddr *) &local_addr, &sock_size);
+    if(!err) {
+        ERROR("getsockname");
+        goto error_cleanup;
+    }
+	//set the correct local port in the bytecode before load
+	*ctx->obufs.verdict_port_p = ntohs(local_addr.sin_port);
+
+	err = bpf_prog_load_obj_buf(ctx->obufs.parse_prog, 
+		ctx->obufs.parse_prog_size,
+		PARSE_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
+		  &pobj, &pfd);
+    if(!err) {
+        LOGE("Failed to load BPF object\n");
+        goto error_cleanup;
+    }
+
+	err = bpf_prog_load_obj_buf(ctx->obufs.verdict_prog,
+		ctx->obufs.verdict_prog_size,
+		VERDICT_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
+		&vobj, &vfd);
+    if(!err) {
+        LOGE("Failed to load BPF object\n");
+        goto error_cleanup;
+    }
+
+    smap = bpf_object__find_map_by_name(vobj, "redirect_map");
+    if(smap == NULL) {
+        LOGE("Cannot find sockmap. Malformed BPF object\n");
+        goto error_cleanup;
+    }
+
+	sfd = bpf_map__fd(smap);
+    if(sfd < 0) {
+        LOGE("Unable to get sockmap reference fd\n");
+        goto error_cleanup;
+    }
+
+	err = bpf_prog_attach(pfd, sfd, BPF_SK_SKB_STREAM_PARSER, 0);
+    if(err < 0) {
+        LOGE("Failed to attach stream parser to sockmap\n");
+        goto error_cleanup;
+    }
+
+	err = bpf_prog_attach(vfd, sfd, BPF_SK_SKB_STREAM_VERDICT, 0);
+    if(err < 0) {
+        LOGE("Failed to attach verdict program to sockmap\n");
+        goto error_cleanup;
+    }
+
+	err = bpf_map_update_elem(sfd, &local_key, &local_sock, BPF_ANY);
+    if(err < 0) {
+        LOGE("Failed to put socket into sockmap\n");
+        goto error_cleanup;
+    }
+
+	err = bpf_map_update_elem(sfd, &remote_key, &remote_sock, BPF_ANY);
+    if(err < 0) {
+        LOGE("Failed to put socket into sockmap\n");
+        goto error_cleanup;
+    }
+
+	conn->sockmap_fd = sfd;
+	conn->parse_prog_fd = pfd;
+	conn->verdict_prog_fd = vfd;
+	conn->local_sock = local_sock;
+	conn->remote_sock = remote_sock;
+
+	ctx->connections[ntohs(local_addr.sin_port)] = conn;
+
+	free(vobj);
+	free(pobj);
+
+    return 0;
+
+error_cleanup:
+    free(conn);
+    free(vobj);
+	free(pobj);
+error:
+    return -1;
+}
+
+inline void 
+free_ebpf_connection(ebpf_conn_t *conn)
+{
+    close(conn->sockmap_fd);
+	close(conn->parse_prog_fd);
+	close(conn->verdict_prog_fd);
+    if(is_open(conn->local_sock))
+        close(conn->local_sock);
+	if(is_open(conn->remote_sock))
+        close(conn->remote_sock);
+    conn = NULL;
 }
 
 static void
@@ -323,17 +592,24 @@ delayed_connect_cb(EV_P_ ev_timer *watcher, int revents)
                                          delayed_connect_watcher);
     remote_t *remote = server->remote;
 
-    int r = connect(remote->fd, remote->addr,
-                    get_sockaddr_len(remote->addr));
+    if(!is_open(remote->fd)) {
+        int r = connect(remote->fd, remote->addr,
+                            get_sockaddr_len(remote->addr));
 
-    remote->addr = NULL;
+        remote->addr = NULL;
 
-    if (r == -1 && errno != CONNECT_IN_PROGRESS) {
-        ERROR("connect");
-        close_and_free_remote(EV_A_ remote);
-        close_and_free_server(EV_A_ server);
-        return;
-    } else {
+        if (r == -1 && errno != CONNECT_IN_PROGRESS) {
+            ERROR("connect");
+            close_and_free_remote(EV_A_ remote);
+            close_and_free_server(EV_A_ server);
+            return;
+        }
+        else {
+            ev_io_start(EV_A_ & remote->send_ctx->io);
+            ev_timer_start(EV_A_ & remote->send_ctx->watcher);
+        }
+    }
+    else {
         // listen to remote connected event
         ev_io_start(EV_A_ & remote->send_ctx->io);
         ev_timer_start(EV_A_ & remote->send_ctx->watcher);
@@ -788,6 +1064,23 @@ accept_cb(EV_P_ ev_io *w, int revents)
         }
     }
 
+    //Initialize eBPF dataplane if enabled
+    if (listener->ebpf) {
+        int r = connect(remotefd, remote_addr, get_sockaddr_len(remote_addr));
+        if (r == -1 && errno != CONNECT_IN_PROGRESS) {
+            ERROR("connect");
+            return;
+        }
+
+        int err = init_ebpf_connection(listener, remotefd, serverfd);
+        if(!err) {
+            LOGE("eBPF connection initialization failed");
+            LOGI("Fallback to regular connection");
+        }
+        else
+            return;
+    }
+
     server_t *server = new_server(serverfd);
     remote_t *remote = new_remote(remotefd, listener->timeout);
     server->remote   = remote;
@@ -799,14 +1092,18 @@ accept_cb(EV_P_ ev_io *w, int revents)
         remote->addr = remote_addr;
         ev_timer_start(EV_A_ & server->delayed_connect_watcher);
     } else {
-        int r = connect(remotefd, remote_addr, get_sockaddr_len(remote_addr));
 
-        if (r == -1 && errno != CONNECT_IN_PROGRESS) {
-            ERROR("connect");
-            close_and_free_remote(EV_A_ remote);
-            close_and_free_server(EV_A_ server);
-            return;
+        if(!is_open(remotefd)) {
+            int r = connect(remotefd, remote_addr, get_sockaddr_len(remote_addr));
+
+            if (r == -1 && errno != CONNECT_IN_PROGRESS) {
+                ERROR("connect");
+                close_and_free_remote(EV_A_ remote);
+                close_and_free_server(EV_A_ server);
+                return;
+            }
         }
+        
         // listen to remote connected event
         ev_io_start(EV_A_ & remote->send_ctx->io);
         ev_timer_start(EV_A_ & remote->send_ctx->watcher);
@@ -846,6 +1143,7 @@ main(int argc, char **argv)
     int i, c;
     int pid_flags    = 0;
     int mptcp        = 0;
+    int ebpf         = 0;
     int mtu          = 0;
     char *user       = NULL;
     char *local_port = NULL;
@@ -874,6 +1172,7 @@ main(int argc, char **argv)
         { "fast-open",   no_argument,       NULL, GETOPT_VAL_FAST_OPEN   },
         { "mtu",         required_argument, NULL, GETOPT_VAL_MTU         },
         { "mptcp",       no_argument,       NULL, GETOPT_VAL_MPTCP       },
+        { "ebpf",        no_argument,       NULL, GETOPT_VAL_EBPF        },
         { "plugin",      required_argument, NULL, GETOPT_VAL_PLUGIN      },
         { "plugin-opts", required_argument, NULL, GETOPT_VAL_PLUGIN_OPTS },
         { "reuse-port",  no_argument,       NULL, GETOPT_VAL_REUSE_PORT  },
@@ -901,6 +1200,10 @@ main(int argc, char **argv)
         case GETOPT_VAL_MPTCP:
             mptcp = 1;
             LOGI("enable multipath TCP");
+            break;
+        case GETOPT_VAL_EBPF:
+            ebpf = 1;
+            LOGI("enable eBPF dataplane");
             break;
         case GETOPT_VAL_NODELAY:
             no_delay = 1;
@@ -1041,6 +1344,9 @@ main(int argc, char **argv)
         }
         if (mptcp == 0) {
             mptcp = conf->mptcp;
+        }
+        if(ebpf == 0) {
+            ebpf = conf->ebpf;
         }
         if (no_delay == 0) {
             no_delay = conf->no_delay;
@@ -1188,6 +1494,16 @@ main(int argc, char **argv)
     }
     listen_ctx.timeout = atoi(timeout);
     listen_ctx.mptcp   = mptcp;
+    listen_ctx.ebpf     = ebpf;
+    if(ebpf) {
+        int r = init_ebpf_object_buffers(&listen_ctx.obufs);
+        if(!r) {
+            LOGE("Failed to load eBPF objects");
+        }
+        else {
+            memset(&listen_ctx.connections, 0, 65536 * sizeof(ebpf_conn_t *));
+        }
+    }
 
     struct ev_loop *loop = EV_DEFAULT;
 

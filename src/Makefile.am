@@ -105,6 +105,9 @@ ss_redir_SOURCES = utils.c \
 ss_redir_CFLAGS = $(AM_CFLAGS) -DMODULE_REDIR
 ss_redir_LDADD = $(SS_COMMON_LIBS)
 ss_redir_LDADD += -lcares
+ss_redir_LDADD += -lcap
+ss_redir_LDADD += -lbpf
+ss_redir_LDADD += -lelf
 endif
 
 lib_LTLIBRARIES = libshadowsocks-libev.la

@@ -31,6 +31,24 @@
 #include "crypto.h"
 #include "jconf.h"
 
+typedef struct obufs
+{
+	void *parse_prog;
+	void *verdict_prog;
+    int *verdict_port_p;
+	int parse_prog_size;
+	int verdict_prog_size;
+} obufs_t;
+
+typedef struct ebpf_conn
+{
+	int sockmap_fd;
+	int parse_prog_fd;
+	int verdict_prog_fd;
+	int local_sock;
+	int remote_sock;
+} ebpf_conn_t;
+
 typedef struct listen_ctx {
     ev_io io;
     int remote_num;
@@ -38,7 +56,10 @@ typedef struct listen_ctx {
     int fd;
     int mptcp;
     int tos;
+    int ebpf;
     struct sockaddr **remote_addr;
+    ebpf_conn_t *connections[65536];
+	obufs_t obufs;
 } listen_ctx_t;
 
 typedef struct server_ctx {

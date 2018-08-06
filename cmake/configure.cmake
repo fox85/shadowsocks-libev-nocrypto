@@ -35,6 +35,9 @@ check_include_files(linux/if.h HAVE_LINUX_IF_H)
 check_include_files(linux/netfilter_ipv4.h HAVE_LINUX_NETFILTER_IPV4_H)
 check_include_files(linux/netfilter_ipv6/ip6_tables.h HAVE_LINUX_NETFILTER_IPV6_IP6_TABLES_H)
 check_include_files(locale.h HAVE_LOCALE_H)
+check_include_files(linux/bpf.h HAVE_LINUX_BPF_H)
+check_include_files(bpf/bpf.h HAVE_BPF_BPF_H)
+check_include_files(bpf/libbpf.h HAVE_BPF_LIBBPF_H)
 
 
 check_function_exists(malloc HAVE_MALLOC)

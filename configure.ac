@@ -245,6 +245,11 @@ AM_COND_IF([USE_SYSTEM_SHARED_LIB],
 		   [AC_DEFINE([USE_SYSTEM_SHARED_LIB], [1], [Define if use system shared lib.])],
 		   [AC_CONFIG_FILES([libbloom/Makefile libcork/Makefile libipset/Makefile])])
 
+AC_CHECK_HEADERS([linux/bpf.h bpf/bpf.h bpf/libbpf.h], [], 
+        [AC_MSG_ERROR([Missing libbpf headers. Instal libbpf from kernel library sources])])
+
+AC_CHECK_LIB([elf], [elf_getdata], [LIBS="-lelf $LIBS"], [AC_MSG_ERROR([Couldn't find libelf])])
+
 AC_ARG_ENABLE(connmarktos,
 [AS_HELP_STRING(--enable-connmarktos, Enable saved connmark to IP TOS QoS feature)],
 [
