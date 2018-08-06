@@ -244,10 +244,10 @@ read_obj_file_into_buffer(char *fname, void **obj_buf, int *obj_buf_sz)
 	long file_size, readed;
     int err;
 
-    if(*obj_buf == NULL || obj_buf_sz == NULL) {
+    /*if(*obj_buf == NULL || obj_buf_sz == NULL) {
         LOGE("Invalid arguments for object file read\n");
         goto error;
-    }
+    }*/
 
 	fileptr = fopen(fname, "rb");
     if(fileptr == NULL) {
@@ -255,7 +255,7 @@ read_obj_file_into_buffer(char *fname, void **obj_buf, int *obj_buf_sz)
         goto error;
     }
 	err = fseek(fileptr, 0, SEEK_END);
-    if(!err) {
+    if(err < 0) {
         ERROR("fseek");
         goto error;
     }
@@ -449,7 +449,7 @@ free_ebpf_connection(ebpf_conn_t *conn)
     close(conn->sockmap_fd);
 	close(conn->parse_prog_fd);
 	close(conn->verdict_prog_fd);
-    
+
     if(is_open(conn->local_sock)) {
         close(conn->local_sock);
     }
