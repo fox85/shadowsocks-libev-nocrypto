@@ -493,7 +493,18 @@ send_ebpf_handshake(int remote_sock, struct sockaddr_storage *destaddr)
 
     abuf->len += 2;
 
-    int r = send(remote_sock, abuf->data, abuf->len, 0);
+    struct sockaddr_storage addr;
+    memset(&addr, 0, sizeof(struct sockaddr_storage));
+    socklen_t len = sizeof addr;
+    int r, tries = 100;
+    do {
+        r = getpeername(remote_sock, (struct sockaddr *)&addr, &len);
+    } while(tries && r != 0);
+    if(r < 0) {
+        return -1;
+    }
+    
+    r = send(remote_sock, abuf->data, abuf->len, 0);
 
     bfree(abuf);
 
