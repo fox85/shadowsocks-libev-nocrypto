@@ -1116,15 +1116,14 @@ accept_cb(EV_P_ ev_io *w, int revents)
             return;
         }
 
-        int err = init_ebpf_connection(listener, remotefd, serverfd);
+        int err = send_ebpf_handshake(remotefd, &destaddr);
+        if(err < 0) {
+            LOGE("eBPF handshake failed");
+        }
+
+        err = init_ebpf_connection(listener, remotefd, serverfd);
         if(err < 0) {
             LOGE("eBPF connection initialization failed");
-        }
-        else {
-            err = send_ebpf_handshake(remotefd, &destaddr);
-            if(err < 0) {
-                LOGE("eBPF handshake failed");
-            }
         }
 
         return;
