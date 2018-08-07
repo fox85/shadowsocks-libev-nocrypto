@@ -244,10 +244,10 @@ read_obj_file_into_buffer(char *fname, void **obj_buf, int *obj_buf_sz)
 	long file_size, readed;
     int err;
 
-    /*if(*obj_buf == NULL || obj_buf_sz == NULL) {
+    if(obj_buf == NULL || obj_buf_sz == NULL) {
         LOGE("Invalid arguments for object file read\n");
         goto error;
-    }*/
+    }
 
 	fileptr = fopen(fname, "rb");
     if(fileptr == NULL) {
@@ -266,14 +266,14 @@ read_obj_file_into_buffer(char *fname, void **obj_buf, int *obj_buf_sz)
     }
 	rewind(fileptr);
 
-	buf = (char *) malloc((file_size + 1) *sizeof(char));
+	buf = (char *) malloc((file_size) * sizeof(char));
     if(buf == NULL) {
         ERROR("malloc");
         goto error;
     }
+
 	readed = fread(buf, file_size, 1, fileptr);
-    err = file_size - readed;
-    if(!err) {
+    if(readed != 1) {
         ERROR("fread");
         goto cleanup;
     }
@@ -303,13 +303,13 @@ init_ebpf_object_buffers(obufs_t *progs)
 
 	err = read_obj_file_into_buffer(PARSE_PROG_FILENAME,
 		&progs->parse_prog, &progs->parse_prog_size);
-    if(!err) {
+    if(err < 0) {
         goto error;
     }
 
 	err = read_obj_file_into_buffer(VERDICT_PROG_FILENAME, 
 		&progs->verdict_prog, &progs->verdict_prog_size);
-    if(!err) {
+    if(err < 0) {
         goto error;
     }
 
@@ -361,7 +361,7 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
 
 	sock_size = sizeof(struct sockaddr);
 	err = getsockname(local_sock, (struct sockaddr *) &local_addr, &sock_size);
-    if(!err) {
+    if(err < 0) {
         ERROR("getsockname");
         goto error_cleanup;
     }
@@ -372,7 +372,7 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
 		ctx->obufs.parse_prog_size,
 		PARSE_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
 		  &pobj, &pfd);
-    if(!err) {
+    if(err < 0) {
         LOGE("Failed to load BPF object\n");
         goto error_cleanup;
     }
@@ -381,7 +381,7 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
 		ctx->obufs.verdict_prog_size,
 		VERDICT_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
 		&vobj, &vfd);
-    if(!err) {
+    if(err < 0) {
         LOGE("Failed to load BPF object\n");
         goto error_cleanup;
     }
@@ -459,6 +459,45 @@ free_ebpf_connection(ebpf_conn_t *conn)
     }
         
     conn = NULL;
+}
+
+int
+send_ebpf_handshake(int remote_sock, struct sockaddr_storage *destaddr) 
+{
+    // send destaddr
+    buffer_t ss_addr_to_send;
+    buffer_t *abuf = &ss_addr_to_send;
+    balloc(abuf, BUF_SIZE);
+
+    if (AF_INET6 == destaddr->ss_family) { // IPv6
+        abuf->data[abuf->len++] = 4;          // Type 4 is IPv6 address
+
+        size_t in6_addr_len = sizeof(struct in6_addr);
+        memcpy(abuf->data + abuf->len,
+               &(((struct sockaddr_in6 *) destaddr)->sin6_addr),
+               in6_addr_len);
+        abuf->len += in6_addr_len;
+        memcpy(abuf->data + abuf->len,
+               &(((struct sockaddr_in6 *) destaddr)->sin6_port),
+               2);
+    } else {                             // IPv4
+        abuf->data[abuf->len++] = 1; // Type 1 is IPv4 address
+
+        size_t in_addr_len = sizeof(struct in_addr);
+        memcpy(abuf->data + abuf->len,
+               &((struct sockaddr_in *) destaddr)->sin_addr, in_addr_len);
+        abuf->len += in_addr_len;
+        memcpy(abuf->data + abuf->len,
+               &((struct sockaddr_in *) destaddr)->sin_port, 2);
+    }
+
+    abuf->len += 2;
+
+    int r = send(remote_sock, abuf->data, abuf->len, 0);
+
+    bfree(abuf);
+
+    return r;
 }
 
 static void
@@ -1078,12 +1117,17 @@ accept_cb(EV_P_ ev_io *w, int revents)
         }
 
         int err = init_ebpf_connection(listener, remotefd, serverfd);
-        if(!err) {
+        if(err < 0) {
             LOGE("eBPF connection initialization failed");
-            LOGI("Fallback to regular connection");
         }
-        else
-            return;
+        else {
+            err = send_ebpf_handshake(remotefd, &destaddr);
+            if(err < 0) {
+                LOGE("eBPF handshake failed");
+            }
+        }
+
+        return;
     }
 
     server_t *server = new_server(serverfd);
@@ -1502,7 +1546,7 @@ main(int argc, char **argv)
     listen_ctx.ebpf     = ebpf;
     if(ebpf) {
         int r = init_ebpf_object_buffers(&listen_ctx.obufs);
-        if(!r) {
+        if(r < 0) {
             LOGE("Failed to load eBPF objects");
         }
         else {
