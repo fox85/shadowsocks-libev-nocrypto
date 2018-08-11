@@ -93,8 +93,11 @@ static void close_and_free_server(EV_P_ server_t *server);
 int verbose        = 0;
 int reuse_port     = 0;
 int keep_resolving = 1;
+int ebpf           = 0;
 
 static crypto_t *crypto;
+ebpf_conn_t *connections[65536];
+obufs_t obufs;
 
 static int ipv6first = 0;
 static int mode      = TCP_ONLY;
@@ -341,7 +344,7 @@ free_ebpf_object_buffers(obufs_t *progs)
 }
 
 int 
-init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
+init_ebpf_connection(int local_sock, int remote_sock)
 {
     int pfd, vfd, sfd, err = -1;
     int local_key, remote_key;
@@ -366,10 +369,15 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
         goto error_cleanup;
     }
 	//set the correct local port in the bytecode before load
-	*ctx->obufs.verdict_port_p = ntohs(local_addr.sin_port);
+    if(obufs.verdict_port_p != NULL)
+	    *obufs.verdict_port_p = ntohs(local_addr.sin_port);
+    else {
+        LOGE("Invalid memory address to save port\n.");
+        goto error_cleanup;
+    }
 
-	err = bpf_prog_load_obj_buf(ctx->obufs.parse_prog, 
-		ctx->obufs.parse_prog_size,
+	err = bpf_prog_load_obj_buf(obufs.parse_prog, 
+		obufs.parse_prog_size,
 		PARSE_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
 		  &pobj, &pfd);
     if(err < 0) {
@@ -377,8 +385,8 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
         goto error_cleanup;
     }
 
-	err = bpf_prog_load_obj_buf(ctx->obufs.verdict_prog,
-		ctx->obufs.verdict_prog_size,
+	err = bpf_prog_load_obj_buf(obufs.verdict_prog,
+		obufs.verdict_prog_size,
 		VERDICT_PROG_FILENAME, BPF_PROG_TYPE_SK_SKB,
 		&vobj, &vfd);
     if(err < 0) {
@@ -428,7 +436,7 @@ init_ebpf_connection(listen_ctx_t *ctx, int local_sock, int remote_sock)
 	conn->local_sock = local_sock;
 	conn->remote_sock = remote_sock;
 
-	ctx->connections[ntohs(local_addr.sin_port)] = conn;
+	connections[ntohs(local_addr.sin_port)] = conn;
 
 	free(vobj);
 	free(pobj);
@@ -634,6 +642,8 @@ server_send_cb(EV_P_ ev_io *w, int revents)
             // all sent out, wait for reading
             server->buf->len = 0;
             server->buf->idx = 0;
+            if(ebpf && remote->recv_ctx->connected && remote->send_ctx->connected)
+                init_ebpf_connection(server->fd, remote->fd);
             ev_io_stop(EV_A_ & server_send_ctx->io);
             ev_io_start(EV_A_ & remote->recv_ctx->io);
         }
@@ -905,7 +915,7 @@ remote_send_cb(EV_P_ ev_io *w, int revents)
             ev_io_start(EV_A_ & remote_send_ctx->io);
             return;
         } else {
-            // all sent out, wait for reading
+            // all sent out, wait for reading           
             remote->buf->len = 0;
             remote->buf->idx = 0;
             ev_io_stop(EV_A_ & remote_send_ctx->io);
@@ -1120,7 +1130,7 @@ accept_cb(EV_P_ ev_io *w, int revents)
     }
 
     //Initialize eBPF dataplane if enabled
-    if (listener->ebpf) {
+    /*if (ebpf) {
         int r = connect(remotefd, remote_addr, get_sockaddr_len(remote_addr));
         if (r == -1 && errno != CONNECT_IN_PROGRESS) {
             ERROR("connect");
@@ -1132,13 +1142,13 @@ accept_cb(EV_P_ ev_io *w, int revents)
             LOGE("eBPF handshake failed");
         }
 
-        err = init_ebpf_connection(listener, remotefd, serverfd);
+        err = init_ebpf_connection(remotefd, serverfd);
         if(err < 0) {
             LOGE("eBPF connection initialization failed");
         }
 
         return;
-    }
+    }*/
 
     server_t *server = new_server(serverfd);
     remote_t *remote = new_remote(remotefd, listener->timeout);
@@ -1202,7 +1212,6 @@ main(int argc, char **argv)
     int i, c;
     int pid_flags    = 0;
     int mptcp        = 0;
-    int ebpf         = 0;
     int mtu          = 0;
     char *user       = NULL;
     char *local_port = NULL;
@@ -1553,14 +1562,13 @@ main(int argc, char **argv)
     }
     listen_ctx.timeout = atoi(timeout);
     listen_ctx.mptcp   = mptcp;
-    listen_ctx.ebpf     = ebpf;
     if(ebpf) {
-        int r = init_ebpf_object_buffers(&listen_ctx.obufs);
+        int r = init_ebpf_object_buffers(&obufs);
         if(r < 0) {
             LOGE("Failed to load eBPF objects");
         }
         else {
-            memset(&listen_ctx.connections, 0, 65536 * sizeof(ebpf_conn_t *));
+            memset(connections, 0, 65536 * sizeof(ebpf_conn_t *));
         }
     }
 

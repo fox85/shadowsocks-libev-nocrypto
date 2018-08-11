@@ -56,10 +56,7 @@ typedef struct listen_ctx {
     int fd;
     int mptcp;
     int tos;
-    int ebpf;
     struct sockaddr **remote_addr;
-    ebpf_conn_t *connections[65536];
-	obufs_t obufs;
 } listen_ctx_t;
 
 typedef struct server_ctx {
