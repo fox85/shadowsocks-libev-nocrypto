@@ -29,5 +29,12 @@ After that, you can install other dependencies and build the software as usual. 
 ## Usage
 Run `ss-redir` as usual, but include `--ebpf` flag as argument, or `"ebpf" : "1"` into the config file. **Important**: if you install `ss-redir` somewhere else like `/usr/bin` or so, you should copy `sockmap_parse.o.ebpf` and `sockmap_verdict.o.ebpf` files to the same directory. **TODO: fix this issue by including the bytecode of the object files into the redir.c source file**
 
+On some distro the software maybe crash with **permission denied** error. You should increase the size of the locket memory to solve the issue. Also good idead to increase the maximum of the opened files.
+```
+# ulimit -l unlimited
+# ulimit -n 8192
+```
+
+
 ## Acknowledgement
 I would like to say thanks to John Fastabend, Tom Herbert, Lawrence Brakmo and Daniel Borkmann for their help by giving me hints and answers.
