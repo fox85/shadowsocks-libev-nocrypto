@@ -4,7 +4,7 @@ This is a fork for the popular proxifier software [shadowsocks-libev](https://gi
 
 ## Important notes
 * Encryption does not work. That's because the functionality is built on top of kernel eBPF virtual machine. This is a VM with restricted instruction set and limited amount of helper calls, without encryption functions.
-* Performance/functionality issues are possible on some platform. eBPF is under active development, the sockmap/sk_redirect support is [fairly new](https://lwn.net/Articles/731133/) and more bugfixes will be coming.
+* Performance/functionality issues are possible on some platforms. eBPF is under active development, the sockmap/sk_redirect support is [fairly new](https://lwn.net/Articles/731133/) and more bugfixes will be coming.
 * For instrument the software at least **4.14** kernel version required. The latest subpatch version is highly recommended, because of the backported bugfixes. Compile the kernel with BPF support, including `CONFIG_BPF_STREAM_PARSER=y` in the `.config`
 
 ## Building
