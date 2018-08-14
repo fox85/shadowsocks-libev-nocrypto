@@ -19,6 +19,10 @@ $ make install
 $ make install_headers
 $ sudo cp libbpf.h /usr/local/include/bpf/
 ```
+#### Install **libcap** dependency
+```
+$ sudo apt install libcap-dev
+```
 
 After that, you can install other dependencies and build the software as usual. There are two files: `sockmap_parse.o.ebpf` and `sockmap_verdict.o.ebpf`. These are precompiled eBPF object files, required by `ss-redir`. The source code of these files also included (`sockmap_parse.c` and `sockmap_redir.c`) so if you can compile them if you don't trust these binaries. But I didn't want to add **clang** compiler as a dependency. 
 
